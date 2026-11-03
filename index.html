@@ -1,0 +1,184 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PuttIQ | Putting Coach</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#101d19;color:#f4f8f5;font-family:-apple-system,BlinkMacSystemFont,Arial,sans-serif}
+header{padding:22px;background:#19382c;text-align:center}
+h1{margin:0;color:#9df0ae;font-size:34px}
+header p{margin:6px;color:#c7d7cd}
+main{max-width:700px;margin:auto;padding:18px}
+section{background:#20372d;border-radius:16px;padding:18px;margin-bottom:16px}
+h2{font-size:19px;margin-top:0}
+button,select,input{font:inherit}
+button{background:#a0eab0;color:#10251a;border:0;border-radius:10px;padding:12px 16px;font-weight:700;cursor:pointer;margin:4px}
+button:disabled{opacity:.4}
+select,input[type=file]{width:100%;padding:12px;margin:8px 0;background:#fff;color:#111;border-radius:8px}
+video{width:100%;display:block;background:#000}
+#screen{position:relative;touch-action:manipulation}
+canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:manipulation}
+.small{font-size:13px;color:#c7d7cd;line-height:1.5}
+.metric{background:#14281f;padding:12px;border-radius:10px;margin:8px 0}
+#results{line-height:1.6}
+input[type=range]{width:100%}
+</style>
+</head>
+<body>
+<header>
+<h1>⛳ PuttIQ</h1>
+<p>Your Personal Putting Coach</p>
+</header>
+<main>
+<section>
+<h2>1. Choose camera angle</h2>
+<select id="angle">
+<option value="behind">Behind the ball</option>
+<option value="face">Face-on</option>
+</select>
+<p id="instructions" class="small"></p>
+</section>
+<section>
+<h2>2. Record or load your putt</h2>
+<input id="file" type="file" accept="video/*">
+<button id="record">Record with camera</button>
+<p class="small">Record a short video, ideally in slow motion. Keep the phone stationary. Videos stay on your device.</p>
+</section>
+<section>
+<h2>3. Review your stroke</h2>
+<div id="screen">
+<video id="video" playsinline preload="metadata" controls></video>
+<canvas id="overlay"></canvas>
+</div>
+<p id="time" class="small">Load a video to begin.</p>
+<input id="seek" type="range" min="0" max="1000" value="0">
+<div>
+<button id="back">◀ Frame</button>
+<button id="forward">Frame ▶</button>
+</div>
+<p class="small">Pause at each position, then tap the putter head in the video. For face-on recordings, you can instead track a consistent point on your hands.</p>
+<select id="phase">
+<option value="address">Address / start</option>
+<option value="top">Top of backswing</option>
+<option value="impact">Impact</option>
+<option value="finish">End of follow-through</option>
+</select>
+<button id="clear">Clear markers</button>
+<p id="marked" class="small">No markers yet.</p>
+</section>
+<section>
+<h2>4. Stroke analysis</h2>
+<button id="analyze">Analyze stroke</button>
+<div id="results"></div>
+</section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const video=$("video"),canvas=$("overlay"),ctx=canvas.getContext("2d");
+let marks={},url=null;
+const names=["address","top","impact","finish"];
+const tips={
+behind:"Position the camera behind the ball, looking toward the target. Keep the putter head visible. For best results, use a raised, stable camera position.",
+face:"Position the camera face-on, perpendicular to the putting line. Keep your head, hands and putter visible."
+};
+function updateTip(){$("instructions").textContent=tips[$("angle").value]}
+$("angle").onchange=()=>{marks={};updateTip();draw()};
+updateTip();
+$("record").onclick=()=>$("file").click();
+$("file").onchange=e=>{
+const file=e.target.files[0];if(!file)return;
+if(url)URL.revokeObjectURL(url);
+url=URL.createObjectURL(file);
+marks={};video.src=url;video.load();$("results").innerHTML="";
+draw();
+};
+function resize(){
+const r=video.getBoundingClientRect();
+canvas.width=Math.max(1,Math.round(r.width*devicePixelRatio));
+canvas.height=Math.max(1,Math.round(r.height*devicePixelRatio));
+draw();
+}
+video.onloadedmetadata=()=>{
+resize();$("seek").value=0;showTime();
+};
+window.addEventListener("resize",resize);
+function showTime(){
+$("time").textContent="Time: "+video.currentTime.toFixed(3)+" seconds";
+if(video.duration) $("seek").value=Math.round(video.currentTime/video.duration*1000);
+}
+video.ontimeupdate=showTime;
+$("seek").oninput=e=>{
+if(video.duration)video.currentTime=video.duration*e.target.value/1000;
+};
+function step(dir){
+if(!video.duration)return;
+video.pause();
+video.currentTime=Math.max(0,Math.min(video.duration,video.currentTime+dir/60));
+}
+$("back").onclick=()=>step(-1);
+$("forward").onclick=()=>step(1);
+canvas.addEventListener("click",e=>{
+if(!video.duration)return;
+video.pause();
+const r=canvas.getBoundingClientRect();
+const x=(e.clientX-r.left)/r.width;
+const y=(e.clientY-r.top)/r.height;
+const phase=$("phase").value;
+marks[phase]={x,y,t:video.currentTime};
+draw();
+});
+function draw(){
+ctx.clearRect(0,0,canvas.width,canvas.height);
+ctx.save();
+ctx.scale(canvas.width,canvas.height);
+const colors={address:"#fff",top:"#ffce55",impact:"#70e9ff",finish:"#a5ff9a"};
+const pts=names.filter(n=>marks[n]);
+if(pts.length>1){
+ctx.beginPath();
+pts.forEach((n,i)=>{
+const p=marks[n];
+if(i===0)ctx.moveTo(p.x,p.y);else ctx.lineTo(p.x,p.y);
+});
+ctx.strokeStyle="#a5ff9a";ctx.lineWidth=.005;ctx.stroke();
+}
+pts.forEach(n=>{
+const p=marks[n];
+ctx.beginPath();ctx.arc(p.x,p.y,.012,0,Math.PI*2);
+ctx.fillStyle=colors[n];ctx.fill();
+ctx.font=".025px Arial";ctx.fillText(n,p.x+.016,p.y-.014);
+});
+ctx.restore();
+$("marked").textContent=pts.length?pts.map(n=>n+" ✓").join(" · "):"No markers yet.";
+}
+$("clear").onclick=()=>{marks={};draw();$("results").innerHTML=""};
+const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+$("analyze").onclick=()=>{
+if(!names.every(n=>marks[n])){
+$("results").textContent="Mark all four stroke positions first.";return;
+}
+const a=marks.address,b=marks.top,c=marks.impact,d=marks.finish;
+const back=distance(a,b),follow=distance(c,d);
+const ratio=back>0?follow/back:0;
+const backTime=Math.abs(c.t-b.t);
+const forwardTime=Math.abs(d.t-c.t);
+let html="<div class='metric'><b>Follow-through / backswing:</b> "+ratio.toFixed(2)+"</div>";
+if(backTime>0&&forwardTime>0)
+html+="<div class='metric'><b>Backswing-to-follow-through time ratio:</b> "+(backTime/forwardTime).toFixed(2)+" : 1</div>";
+html+="<div class='metric'><b>Coaching observations</b><p>";
+if(back<.01)html+="Backswing is too small in the video for reliable measurement. ";
+else if(ratio<.65)html+="Your marked follow-through is substantially shorter than your backswing. Check whether you are decelerating or stopping the putter early. ";
+else if(ratio>1.8)html+="Your marked follow-through is much longer than your backswing. Review your distance control and tempo. ";
+else html+="Your marked stroke lengths are reasonably balanced. ";
+if($("angle").value==="behind")
+html+="Review the green path overlay for sideways movement relative to your intended putting line. Camera perspective can distort the apparent path.";
+else
+html+="Use this face-on view to inspect hand movement and stroke length. Head stability needs separate head-position markers.";
+html+="</p></div><p class='small'>These are approximate image-space measurements, not calibrated physical distances or an automatic diagnosis. The time ratio is not a standard putting tempo metric.</p>";
+$("results").innerHTML=html;
+};
+</script>
+</body>
+</html>
